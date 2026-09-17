@@ -2,92 +2,114 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Карта менеджера</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Карта Клиентов</title>
     <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript"></script>
-    <script src="points.js"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { margin: 0; padding: 0; font-family: sans-serif; background: #fff; }
-        #map { width: 100vw; height: 50vh; } /* Уменьшили карту, чтобы влезла клавиатура */
-        #action-panel { display: none; padding: 15px; background: #f4f4f5; height: 50vh; box-sizing: border-box; overflow-y: auto; }
-        h3 { margin-top: 0; font-size: 16px; margin-bottom: 5px; }
-        .address { font-size: 13px; color: gray; margin-bottom: 10px; }
-        
-        /* Поле ввода названия */
-        input[type="text"] { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 15px; }
-        
-        button { width: 100%; padding: 12px; margin: 5px 0; border-radius: 8px; border: none; font-size: 16px; font-weight: bold; cursor: pointer; }
-        .btn-work { background: #4CAF50; color: white; }
-        .btn-not-work { background: #FF9800; color: white; }
-        .btn-closed { background: #F44336; color: white; }
+        body, html { padding: 0; margin: 0; width: 100%; height: 100%; font-family: Arial, sans-serif; }
+        #map { width: 100%; height: 100%; }
+        #action-panel {
+            display: none; position: absolute; bottom: 0; left: 0; width: 100%;
+            background: white; padding: 15px; box-sizing: border-box;
+            border-top-left-radius: 15px; border-top-right-radius: 15px;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 1000;
+        }
+        h3, p { margin: 0 0 10px 0; }
+        .address { color: gray; font-size: 14px; margin-bottom: 15px; }
+        input { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; }
+        button { width: 100%; padding: 10px; background: #0088cc; color: white; border: none; border-radius: 5px; font-size: 16px; margin-bottom: 5px; cursor: pointer; }
+        .btn-close { background: #ff4d4d; }
     </style>
 </head>
 <body>
     <div id="map"></div>
-    <div id="action-panel">
-        <h3 id="point-name">Выберите точку</h3>
-        <div id="point-address" class="address"></div>
-        
-        <!-- Новое поле для ввода реального названия -->
-        <label style="font-size: 14px; font-weight: bold;">Уточните название компании:</label>
-        <input type="text" id="custom-name" placeholder="Например: ООО Ромашка">
 
-        <button class="btn-work" onclick="sendStatus('Работает')">✅ Работает</button>
-        <button class="btn-not-work" onclick="sendStatus('Не работает')">⚠️ Не работает</button>
-        <button class="btn-closed" onclick="sendStatus('Закрыто навсегда')">❌ Закрыто</button>
+    <div id="action-panel">
+        <h3 id="point-name">Название</h3>
+        <!-- Вот эта строка отвечает за вывод адреса! -->
+        <p id="point-address" class="address">Адрес</p>
+        <input type="text" id="company-name" placeholder="Введите название (если есть)">
+        <button onclick="sendStatus('Работает')">Работает</button>
+        <button onclick="sendStatus('Закрыто')">Закрыто</button>
+        <button onclick="sendStatus('Думают')">Думают</button>
+        <button class="btn-close" onclick="closePanel()">Отмена</button>
     </div>
 
+    <!-- Подключаем нашу свежую базу адресов -->
+    <script src="points.js"></script>
     <script>
-        const tg = window.Telegram.WebApp;
+        let tg = window.Telegram.WebApp;
         tg.expand();
         let currentSelectedPoint = null;
-        
+        let map;
+
         ymaps.ready(init);
+
         function init() {
-            let map = new ymaps.Map("map", { center: [55.164, 61.436], zoom: 10, controls: ['zoomControl'] });
-            let clusterer = new ymaps.Clusterer({ preset: 'islands#invertedBlueClusterIcons' });
+            map = new ymaps.Map("map", {
+                center: [55.1644, 61.4368], // Челябинск
+                zoom: 10,
+                controls: ['zoomControl']
+            });
+
+            // Кластеризатор, чтобы телефон не завис от 2118 точек
+            let clusterer = new ymaps.Clusterer({
+                preset: 'islands#invertedBlueClusterIcons',
+                groupByCoordinates: false,
+                clusterDisableClickZoom: false,
+                clusterHideIconOnBalloonOpen: false,
+                geoObjectHideIconOnBalloonOpen: false
+            });
+
             let geoObjects = [];
-            
+
+            // Проходимся по всем точкам из points.js
             pointsData.forEach(point => {
                 let placemark = new ymaps.Placemark(point.coords, {
                     hintContent: point.name,
+                    balloonContent: point.address
                 }, { preset: 'islands#blueIcon' });
 
+                // Что происходит при клике на точку
                 placemark.events.add('click', function () {
                     currentSelectedPoint = point;
                     document.getElementById('action-panel').style.display = 'block';
                     document.getElementById('point-name').innerText = point.name;
-                    
-                    // Подставляем старое название в поле ввода, чтобы менеджер мог его стереть и написать новое
-                    document.getElementById('custom-name').value = point.name !== "Неизвестно" ? point.name : "";
+                    // Вставляем адрес из базы в панель:
+                    document.getElementById('point-address').innerText = point.address;
                 });
+
                 geoObjects.push(placemark);
             });
+
             clusterer.add(geoObjects);
             map.geoObjects.add(clusterer);
+            
+            // Центрируем карту так, чтобы было видно все метки
+            map.setBounds(clusterer.getBounds(), { checkZoomRange: true });
+        }
+
+        function closePanel() {
+            document.getElementById('action-panel').style.display = 'none';
+            document.getElementById('company-name').value = '';
+            currentSelectedPoint = null;
         }
 
         function sendStatus(status) {
             if (!currentSelectedPoint) return;
+            let typedName = document.getElementById('company-name').value;
+            let finalName = typedName ? typedName : currentSelectedPoint.name;
             
-            // Забираем то, что менеджер написал в текстовом поле
-            const updatedName = document.getElementById('custom-name').value.trim();
+            let data = {
+                id: currentSelectedPoint.id,
+                name: finalName,
+                address: currentSelectedPoint.address,
+                status: status
+            };
             
-            // Если он оставил поле пустым, выдаем ошибку и не даем отправить статус
-            if (updatedName === "" || updatedName.startsWith("Точка ")) {
-                tg.showAlert("Пожалуйста, впишите реальное название компании!");
-                return;
-            }
-
-            const reportData = JSON.stringify({ 
-                point_id: currentSelectedPoint.id, 
-                original_name: currentSelectedPoint.name, // "Точка 15"
-                new_name: updatedName,                    // "Магазин Продукты"
-                status: status 
-            });
-            
-            tg.sendData(reportData);
+            tg.sendData(JSON.stringify(data));
+            closePanel();
         }
     </script>
 </body>
