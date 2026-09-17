@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Карта менеджера</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript"></script>
+    <!-- Вот здесь карта подключает файл с твоими точками -->
+    <script src="points.js"></script>
+    <style>
+        body { margin: 0; padding: 0; font-family: sans-serif; background: #fff; }
+        #map { width: 100vw; height: 60vh; }
+        #action-panel { display: none; padding: 15px; background: #f4f4f5; height: 40vh; box-sizing: border-box; }
+        h3 { margin-top: 0; font-size: 16px; margin-bottom: 5px; }
+        .address { font-size: 13px; color: gray; margin-bottom: 10px; }
+        button { width: 100%; padding: 12px; margin: 5px 0; border-radius: 8px; border: none; font-size: 16px; font-weight: bold; cursor: pointer; }
+        .btn-work { background: #4CAF50; color: white; }
+        .btn-not-work { background: #FF9800; color: white; }
+        .btn-closed { background: #F44336; color: white; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="action-panel">
+        <h3 id="point-name">Выберите точку</h3>
+        <div id="point-address" class="address"></div>
+        <button class="btn-work" onclick="sendStatus('Работает')">✅ Работает</button>
+        <button class="btn-not-work" onclick="sendStatus('Не работает')">⚠️ Не работает</button>
+        <button class="btn-closed" onclick="sendStatus('Закрыто навсегда')">❌ Закрыто</button>
+    </div>
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        let currentSelectedPoint = null;
+        
+        ymaps.ready(init);
+        function init() {
+            // Центр карты на Челябинске
+            let map = new ymaps.Map("map", { center: [55.164, 61.436], zoom: 10, controls: ['zoomControl'] });
+            let clusterer = new ymaps.Clusterer({ preset: 'islands#invertedBlueClusterIcons' });
+            let geoObjects = [];
+            
+            // pointsData берется из второго файла
+            pointsData.forEach(point => {
+                let placemark = new ymaps.Placemark(point.coords, {
+                    hintContent: point.name,
+                    balloonContent: point.address
+                }, { preset: 'islands#blueIcon' });
+
+                placemark.events.add('click', function () {
+                    currentSelectedPoint = point;
+                    document.getElementById('action-panel').style.display = 'block';
+                    document.getElementById('point-name').innerText = point.name;
+                    document.getElementById('point-address').innerText = point.address;
+                });
+                geoObjects.push(placemark);
+            });
+            clusterer.add(geoObjects);
+            map.geoObjects.add(clusterer);
+        }
+        function sendStatus(status) {
+            if (!currentSelectedPoint) return;
+            const reportData = JSON.stringify({ point_id: currentSelectedPoint.id, name: currentSelectedPoint.name, status: status });
+            tg.sendData(reportData);
+        }
+    </script>
+</body>
+</html>
