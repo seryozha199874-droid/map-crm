@@ -1,71 +1,82 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Карта Клиентов</title>
-    <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript"></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- Скрипт Телеграма -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- API Яндекса -->
+    <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript"></script>
+    <!-- Подключаем твою базу адресов -->
+    <script src="points.js"></script>
     <style>
-        body, html { padding: 0; margin: 0; width: 100%; height: 100%; font-family: Arial, sans-serif; }
+        body, html { padding: 0; margin: 0; width: 100%; height: 100%; font-family: sans-serif; }
         #map { width: 100%; height: 100%; }
-        #action-panel {
-            display: none; position: absolute; bottom: 0; left: 0; width: 100%;
-            background: white; padding: 15px; box-sizing: border-box;
-            border-top-left-radius: 15px; border-top-right-radius: 15px;
-            box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 1000;
+        /* Стили для новых цветных кнопок */
+        .status-btn {
+            display: block; width: 100%; padding: 12px; margin: 6px 0;
+            border: none; border-radius: 6px; font-size: 15px; font-weight: bold; color: white; cursor: pointer;
         }
-        h3, p { margin: 0 0 10px 0; }
-        .address { color: gray; font-size: 14px; margin-bottom: 15px; }
-        input { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; }
-        button { width: 100%; padding: 10px; background: #0088cc; color: white; border: none; border-radius: 5px; font-size: 16px; margin-bottom: 5px; cursor: pointer; }
-        .btn-close { background: #ff4d4d; }
+        .btn-work { background-color: #28a745; } /* Зеленый */
+        .btn-think { background-color: #ffc107; color: #000; } /* Желтый */
+        .btn-close { background-color: #dc3545; } /* Красный */
     </style>
 </head>
 <body>
     <div id="map"></div>
-
-    <div id="action-panel">
-        <h3 id="point-name">Название</h3>
-        <p id="point-address" class="address">Адрес</p>
-        <input type="text" id="company-name" placeholder="Введите название (если есть)">
-        <button onclick="sendStatus('Работает')">Работает</button>
-        <button onclick="sendStatus('Закрыто')">Закрыто</button>
-        <button onclick="sendStatus('Думают')">Думают</button>
-        <button class="btn-close" onclick="closePanel()">Отмена</button>
-    </div>
-
-    <script src="points.js?v=2"></script>
     <script>
         let tg = window.Telegram.WebApp;
-        tg.expand();
-        let currentSelectedPoint = null;
-        let map;
+        tg.expand(); // Разворачиваем на весь экран
 
         ymaps.ready(init);
 
         function init() {
-            map = new ymaps.Map("map", {
-                center: [55.1644, 61.4368],
-                zoom: 10,
-                controls: ['zoomControl']
+            // Инициализация карты с Поиском и Геолокацией
+            let map = new ymaps.Map("map", {
+                center: [55.16, 61.4], // Центр (Челябинск)
+                zoom: 11,
+                controls: ['zoomControl', 'searchControl', 'geolocationControl']
             });
 
-            let clusterer = new ymaps.Clusterer({ preset: 'islands#invertedBlueClusterIcons', groupByCoordinates: false, clusterDisableClickZoom: false, clusterOpenBalloonOnClick: false, gridSize: 32 });
+            // Кластеризатор для группировки одинаковых адресов
+            let clusterer = new ymaps.Clusterer({
+                preset: 'islands#blueClusterIcons',
+                groupByCoordinates: true, // ВАЖНО: объединяет точки с одинаковыми координатами в список
+                clusterDisableClickZoom: true,
+                clusterHideIconOnBalloonOpen: false,
+                geoObjectHideIconOnBalloonOpen: false
+            });
+
+            // Читаем кэш телефона
+            function getSavedStatus(id) {
+                return localStorage.getItem('point_status_' + id);
+            }
+
+            // Назначаем цвет метки в зависимости от сохраненного статуса
+            function getPresetByStatus(status) {
+                if (status === 'Работают') return 'islands#greenIcon';
+                if (status === 'Думают') return 'islands#yellowIcon';
+                if (status === 'Закрыты') return 'islands#redIcon';
+                return 'islands#blueIcon'; // Синий для новых, нетронутых точек
+            }
 
             let geoObjects = [];
 
+            // Пробегаемся по твоей базе из points.js
             pointsData.forEach(point => {
-                let placemark = new ymaps.Placemark(point.coords, {
-                    hintContent: point.name,
-                    balloonContent: point.address
-                }, { preset: 'islands#blueIcon' });
+                let savedStatus = getSavedStatus(point.id);
+                let currentPreset = getPresetByStatus(savedStatus);
 
-                placemark.events.add('click', function () {
-                    currentSelectedPoint = point;
-                    document.getElementById('action-panel').style.display = 'block';
-                    document.getElementById('point-name').innerText = point.name;
-                    document.getElementById('point-address').innerText = point.address;
+                let placemark = new ymaps.Placemark(point.coords, {
+                    balloonContentHeader: `<strong>${point.name}</strong>`,
+                    balloonContentBody: `
+                        <div style="margin-bottom: 12px; font-size: 14px; color: #555;">${point.address}</div>
+                        <button class="status-btn btn-work" onclick="sendData('${point.id}', 'Работают')">🟢 Работают</button>
+                        <button class="status-btn btn-think" onclick="sendData('${point.id}', 'Думают')">🟡 Думают</button>
+                        <button class="status-btn btn-close" onclick="sendData('${point.id}', 'Закрыты')">🔴 Закрыты</button>
+                    `
+                }, {
+                    preset: currentPreset
                 });
 
                 geoObjects.push(placemark);
@@ -73,29 +84,26 @@
 
             clusterer.add(geoObjects);
             map.geoObjects.add(clusterer);
-            map.setBounds(clusterer.getBounds(), { checkZoomRange: true });
         }
 
-        function closePanel() {
-            document.getElementById('action-panel').style.display = 'none';
-            document.getElementById('company-name').value = '';
-            currentSelectedPoint = null;
-        }
+        // Функция отправки данных при нажатии на цветную кнопку
+        window.sendData = function(id, status) {
+            // 1. Запоминаем статус в кэш телефона навсегда (до очистки кэша)
+            localStorage.setItem('point_status_' + id, status);
 
-        function sendStatus(status) {
-            if (!currentSelectedPoint) return;
-            let typedName = document.getElementById('company-name').value;
-            let finalName = typedName ? typedName : currentSelectedPoint.name;
-            
+            // 2. Ищем данные точки
+            let pt = pointsData.find(p => p.id === id);
             let data = {
-                id: currentSelectedPoint.id,
-                name: finalName,
-                address: currentSelectedPoint.address,
+                id: id,
+                name: pt.name,
+                address: pt.address,
                 status: status
             };
             
+            // 3. Отправляем в бота. 
+            // ВНИМАНИЕ: метод tg.sendData АВТОМАТИЧЕСКИ закрывает приложение Телеграма!
+            // Когда менеджер снова нажмет "Открыть карту", точка уже будет перекрашена.
             tg.sendData(JSON.stringify(data));
-            closePanel();
         }
     </script>
 </body>
