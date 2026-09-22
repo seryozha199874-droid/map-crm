@@ -3,23 +3,15 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <!-- Скрипт Телеграма -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <!-- API Яндекса -->
     <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript"></script>
-    <!-- Подключаем твою базу адресов (добавил сброс кэша ?v=2) -->
-    <script src="points.js?v=2"></script>
     <style>
         body, html { padding: 0; margin: 0; width: 100%; height: 100%; font-family: sans-serif; }
         #map { width: 100%; height: 100%; }
-        /* Стили для цветных кнопок */
-        .status-btn {
-            display: block; width: 100%; padding: 12px; margin: 6px 0;
-            border: none; border-radius: 6px; font-size: 15px; font-weight: bold; color: white; cursor: pointer;
-        }
-        .btn-work { background-color: #28a745; } /* Зеленый */
-        .btn-think { background-color: #ffc107; color: #000; } /* Желтый */
-        .btn-close { background-color: #dc3545; } /* Красный */
+        .status-btn { display: block; width: 100%; padding: 12px; margin: 6px 0; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; color: white; cursor: pointer; }
+        .btn-work { background-color: #28a745; } 
+        .btn-think { background-color: #ffc107; color: #000; } 
+        .btn-close { background-color: #dc3545; } 
     </style>
 </head>
 <body>
@@ -27,32 +19,25 @@
     <script>
         let tg = window.Telegram.WebApp;
         tg.expand(); 
+        
+        // ВНИМАНИЕ: Пока тестируем на компе. Потом тут будет адрес твоего боевого сервера!
+        const API_BASE_URL = "http://127.0.0.1:8000";
 
         ymaps.ready(init);
 
-        function init() {
-            // Инициализация карты с Поиском и Геолокацией
+        async function init() {
             let map = new ymaps.Map("map", {
-                center: [55.16, 61.4], 
+                center: [55.16, 61.4],
                 zoom: 11,
                 controls: ['zoomControl', 'searchControl', 'geolocationControl']
             });
 
-            // Кластеризатор для группировки одинаковых адресов (те самые списки)
             let clusterer = new ymaps.Clusterer({
                 preset: 'islands#blueClusterIcons',
                 groupByCoordinates: true, 
-                clusterDisableClickZoom: true,
-                clusterHideIconOnBalloonOpen: false,
-                geoObjectHideIconOnBalloonOpen: false
+                clusterDisableClickZoom: true
             });
 
-            // Читаем кэш телефона
-            function getSavedStatus(id) {
-                return localStorage.getItem('point_status_' + id);
-            }
-
-            // Назначаем цвет метки
             function getPresetByStatus(status) {
                 if (status === 'Работают') return 'islands#greenIcon';
                 if (status === 'Думают') return 'islands#yellowIcon';
@@ -60,45 +45,58 @@
                 return 'islands#blueIcon'; 
             }
 
-            let geoObjects = [];
-
-            // Пробегаемся по твоей базе
-            pointsData.forEach(point => {
-                let savedStatus = getSavedStatus(point.id);
-                let currentPreset = getPresetByStatus(savedStatus);
-
-                let placemark = new ymaps.Placemark(point.coords, {
-                    balloonContentHeader: `<strong>${point.name}</strong>`,
-                    balloonContentBody: `
-                        <div style="margin-bottom: 12px; font-size: 14px; color: #555;">${point.address}</div>
-                        <button class="status-btn btn-work" onclick="sendData('${point.id}', 'Работают')">🟢 Работают</button>
-                        <button class="status-btn btn-think" onclick="sendData('${point.id}', 'Думают')">🟡 Думают</button>
-                        <button class="status-btn btn-close" onclick="sendData('${point.id}', 'Закрыты')">🔴 Закрыты</button>
-                    `
-                }, {
-                    preset: currentPreset
+            try {
+                // 1. Делаем запрос к твоему Python-серверу
+                let response = await fetch(`${API_BASE_URL}/api/points`);
+                let data = await response.json();
+                
+                let geoObjects = [];
+                data.points.forEach(point => {
+                    let placemark = new ymaps.Placemark(point.coords, {
+                        balloonContentHeader: `<strong>${point.name}</strong>`,
+                        balloonContentBody: `
+                            <div style="margin-bottom: 12px; font-size: 14px;">${point.address}</div>
+                            <div style="margin-bottom: 8px;">Текущий статус: <b>${point.status}</b></div>
+                            <button class="status-btn btn-work" onclick="changeStatus(${point.id}, 'Работают')">🟢 Работают</button>
+                            <button class="status-btn btn-think" onclick="changeStatus(${point.id}, 'Думают')">🟡 Думают</button>
+                            <button class="status-btn btn-close" onclick="changeStatus(${point.id}, 'Закрыты')">🔴 Закрыты</button>
+                        `
+                    }, { preset: getPresetByStatus(point.status) });
+                    geoObjects.push(placemark);
                 });
-
-                geoObjects.push(placemark);
-            });
-
-            clusterer.add(geoObjects);
-            map.geoObjects.add(clusterer);
+                clusterer.add(geoObjects);
+                map.geoObjects.add(clusterer);
+            } catch (error) {
+                console.error("Ошибка загрузки точек:", error);
+                alert("Не удалось загрузить точки. Сервер работает?");
+            }
         }
 
-        // Отправка данных
-        window.sendData = function(id, status) {
-            localStorage.setItem('point_status_' + id, status);
+        // 2. Функция отправки статуса обратно на сервер
+        window.changeStatus = async function(id, newStatus) {
+            try {
+                // Для теста вне телеграма берем фейковую строку. В боте будет реальная.
+                let initDataString = tg.initData || "test_fake_data"; 
 
-            let pt = pointsData.find(p => p.id === id);
-            let data = {
-                id: id,
-                name: pt.name,
-                address: pt.address,
-                status: status
-            };
-            
-            tg.sendData(JSON.stringify(data));
+                let response = await fetch(`${API_BASE_URL}/api/update_status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        point_id: id,
+                        new_status: newStatus,
+                        init_data: initDataString
+                    })
+                });
+
+                if (response.ok) {
+                    alert(`✅ Сохранено в базу: ${newStatus}\nОбнови страницу, чтобы увидеть смену цвета.`);
+                } else {
+                    let err = await response.json();
+                    alert("❌ Ошибка: " + err.detail);
+                }
+            } catch (error) {
+                alert("Ошибка сети при отправке!");
+            }
         }
     </script>
 </body>
