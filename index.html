@@ -3,7 +3,9 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- Подключаем Telegram Web App -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Подключаем Яндекс Карты с твоим ключом -->
     <script src="https://api-maps.yandex.ru/2.1/?apikey=9127e933-db26-478e-9af5-75b6e9fd0b7e&lang=ru_RU" type="text/javascript"></script>
     <style>
         body, html { padding: 0; margin: 0; width: 100%; height: 100%; font-family: sans-serif; }
@@ -16,11 +18,12 @@
 </head>
 <body>
     <div id="map"></div>
+    
     <script>
         let tg = window.Telegram.WebApp;
         tg.expand(); 
         
-        // Твой боевой сервер
+        // Ссылка на твой боевой API-сервер
         const API_URL = "https://crm-map-manager.duckdns.org/api";
 
         ymaps.ready(init);
@@ -46,17 +49,14 @@
             }
 
             try {
-                // Оставили ТОЛЬКО ОДИН правильный запрос
-                let response = await fetch(`${API_URL}/get_points`);
-                if (!response.ok) throw new Error("Network response error");
+                // Получаем точки из базы данных сервера
+                let response = await fetch(`${API_URL}/points`);
+                if (!response.ok) throw new Error("Ошибка ответа сети");
                 
-                // Получаем массив напрямую
-                let pointsData = await response.json(); 
+                let pointsData = await response.json();
 
-                let geoObjects = [];
-                pointsData.forEach(point => {
-                    // Используем lat и lon напрямую из базы
-                    let placemark = new ymaps.Placemark([point.lat, point.lon], {
+                let geoObjects = pointsData.map(point => {
+                    return new ymaps.Placemark(point.coords, {
                         balloonContentHeader: `<strong>${point.name}</strong>`,
                         balloonContentBody: `
                             <div style="margin-bottom: 12px; font-size: 14px;">${point.address}</div>
@@ -65,35 +65,35 @@
                             <button class="status-btn btn-close" onclick="updateStatus('${point.id}', 'Закрыты')">🔴 Закрыты</button>
                         `
                     }, { preset: getPresetByStatus(point.status) });
-                    geoObjects.push(placemark);
                 });
+
                 clusterer.add(geoObjects);
                 map.geoObjects.add(clusterer);
-            } catch (e) {
-                console.error("Ошибка загрузки", e);
-                tg.showAlert("Сервер недоступен или ошибка загрузки данных.");
+            } catch (error) {
+                console.error("Ошибка загрузки данных:", error);
+                tg.showAlert("Не удалось загрузить точки. Проверь работает ли сервер.");
             }
         }
 
+        // Функция отправки нового статуса на сервер
         window.updateStatus = async function(id, status) {
             try {
                 let response = await fetch(`${API_URL}/update_status`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
-                        point_id: parseInt(id), 
-                        new_status: status,
-                        init_data: tg.initData || "" 
+                        point_id: String(id), 
+                        new_status: status 
                     })
                 });
                 
                 if (response.ok) {
-                    tg.showAlert(`✅ Статус сохранен: ${status}`);
+                    tg.showAlert(`✅ Статус изменен на "${status}".`);
                 } else {
-                    tg.showAlert("Ошибка при сохранении. Проверь логи бэкенда.");
+                    tg.showAlert("Ошибка при сохранении на сервере.");
                 }
-            } catch (e) {
-                tg.showAlert("Ошибка связи с сервером");
+            } catch (error) {
+                tg.showAlert("Ошибка связи с сервером.");
             }
         }
     </script>
