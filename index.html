@@ -20,16 +20,16 @@
         let tg = window.Telegram.WebApp;
         tg.expand(); 
         
-        // ВНИМАНИЕ: Пока тестируем на компе. Потом тут будет адрес твоего боевого сервера!
-        const API_BASE_URL = "http://127.0.0.1:8000";
+        // СЮДА МЫ ВПИШЕМ HTTPS-ССЫЛКУ, КОГДА РЕШИШЬ ВОПРОС С ДОМЕНОМ
+        const API_URL = "http://193.124.131.25:8000/api";
 
         ymaps.ready(init);
 
         async function init() {
             let map = new ymaps.Map("map", {
-                center: [55.16, 61.4],
+                center: [55.16, 61.4], // Челябинск
                 zoom: 11,
-                controls: ['zoomControl', 'searchControl', 'geolocationControl']
+                controls: ['zoomControl', 'geolocationControl']
             });
 
             let clusterer = new ymaps.Clusterer({
@@ -46,56 +46,47 @@
             }
 
             try {
-                // 1. Делаем запрос к твоему Python-серверу
-                let response = await fetch(`${API_BASE_URL}/api/points`);
-                let data = await response.json();
-                
+                // ДЕЛАЕМ ЗАПРОС К НАШЕМУ БЭКЕНДУ
+                let response = await fetch(`${API_URL}/points`);
+                let pointsData = await response.json();
+
                 let geoObjects = [];
-                data.points.forEach(point => {
+                pointsData.forEach(point => {
                     let placemark = new ymaps.Placemark(point.coords, {
                         balloonContentHeader: `<strong>${point.name}</strong>`,
                         balloonContentBody: `
                             <div style="margin-bottom: 12px; font-size: 14px;">${point.address}</div>
-                            <div style="margin-bottom: 8px;">Текущий статус: <b>${point.status}</b></div>
-                            <button class="status-btn btn-work" onclick="changeStatus(${point.id}, 'Работают')">🟢 Работают</button>
-                            <button class="status-btn btn-think" onclick="changeStatus(${point.id}, 'Думают')">🟡 Думают</button>
-                            <button class="status-btn btn-close" onclick="changeStatus(${point.id}, 'Закрыты')">🔴 Закрыты</button>
+                            <button class="status-btn btn-work" onclick="updateStatus('${point.id}', 'Работают')">🟢 Работают</button>
+                            <button class="status-btn btn-think" onclick="updateStatus('${point.id}', 'Думают')">🟡 Думают</button>
+                            <button class="status-btn btn-close" onclick="updateStatus('${point.id}', 'Закрыты')">🔴 Закрыты</button>
                         `
                     }, { preset: getPresetByStatus(point.status) });
                     geoObjects.push(placemark);
                 });
                 clusterer.add(geoObjects);
                 map.geoObjects.add(clusterer);
-            } catch (error) {
-                console.error("Ошибка загрузки точек:", error);
-                alert("Не удалось загрузить точки. Сервер работает?");
+            } catch (e) {
+                console.error("Ошибка загрузки", e);
+                tg.showAlert("Браузер заблокировал запрос (Нужен HTTPS) или сервер недоступен.");
             }
         }
 
-        // 2. Функция отправки статуса обратно на сервер
-        window.changeStatus = async function(id, newStatus) {
+        window.updateStatus = async function(id, status) {
             try {
-                // Для теста вне телеграма берем фейковую строку. В боте будет реальная.
-                let initDataString = tg.initData || "test_fake_data"; 
-
-                let response = await fetch(`${API_BASE_URL}/api/update_status`, {
+                let response = await fetch(`${API_URL}/update_status`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        point_id: id,
-                        new_status: newStatus,
-                        init_data: initDataString
-                    })
+                    body: JSON.stringify({ id: id, status: status })
                 });
-
+                
                 if (response.ok) {
-                    alert(`✅ Сохранено в базу: ${newStatus}\nОбнови страницу, чтобы увидеть смену цвета.`);
+                    tg.showAlert(`✅ Статус сохранен в базу: ${status}`);
+                    // Тут окно больше не закрывается! Менеджер может отмечать дальше
                 } else {
-                    let err = await response.json();
-                    alert("❌ Ошибка: " + err.detail);
+                    tg.showAlert("Ошибка при сохранении");
                 }
-            } catch (error) {
-                alert("Ошибка сети при отправке!");
+            } catch (e) {
+                tg.showAlert("Ошибка связи с сервером");
             }
         }
     </script>
