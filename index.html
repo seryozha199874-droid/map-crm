@@ -20,8 +20,7 @@
         let tg = window.Telegram.WebApp;
         tg.expand(); 
         
-        // СЮДА МЫ ВПИШЕМ HTTPS-ССЫЛКУ, КОГДА РЕШИШЬ ВОПРОС С ДОМЕНОМ
-        const API_URL = "http://193.124.131.25:8000/api";
+        const API_URL = "https://crm-map-manager.duckdns.org/api";
 
         ymaps.ready(init);
 
@@ -46,13 +45,13 @@
             }
 
             try {
-                // ДЕЛАЕМ ЗАПРОС К НАШЕМУ БЭКЕНДУ
-                let response = await fetch(`${API_URL}/points`);
+                let response = await fetch(`${API_URL}/get_points`);
+                if (!response.ok) throw new Error("Network response error");
                 let pointsData = await response.json();
 
                 let geoObjects = [];
                 pointsData.forEach(point => {
-                    let placemark = new ymaps.Placemark(point.coords, {
+                    let placemark = new ymaps.Placemark([point.lat, point.lon], {
                         balloonContentHeader: `<strong>${point.name}</strong>`,
                         balloonContentBody: `
                             <div style="margin-bottom: 12px; font-size: 14px;">${point.address}</div>
@@ -67,7 +66,7 @@
                 map.geoObjects.add(clusterer);
             } catch (e) {
                 console.error("Ошибка загрузки", e);
-                tg.showAlert("Браузер заблокировал запрос (Нужен HTTPS) или сервер недоступен.");
+                tg.showAlert("Сервер недоступен или ошибка загрузки данных.");
             }
         }
 
@@ -80,8 +79,7 @@
                 });
                 
                 if (response.ok) {
-                    tg.showAlert(`✅ Статус сохранен в базу: ${status}`);
-                    // Тут окно больше не закрывается! Менеджер может отмечать дальше
+                    tg.showAlert(`✅ Статус сохранен: ${status}`);
                 } else {
                     tg.showAlert("Ошибка при сохранении");
                 }
