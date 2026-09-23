@@ -20,6 +20,7 @@
         let tg = window.Telegram.WebApp;
         tg.expand(); 
         
+        // Твой боевой сервер
         const API_URL = "https://crm-map-manager.duckdns.org/api";
 
         ymaps.ready(init);
@@ -45,17 +46,17 @@
             }
 
             try {
-                let response = await fetch(`${API_URL}/get_points`);
+                // Стучимся на правильный роут
+                let response = await fetch(`${API_URL}/points`);
                 if (!response.ok) throw new Error("Network response error");
                 
-                // Исправление 1: правильно достаем массив точек из JSON
-                let data = await response.json();
-                let pointsData = data.points; 
+                // Получаем массив напрямую
+                let pointsData = await response.json(); 
 
                 let geoObjects = [];
                 pointsData.forEach(point => {
-                    // Исправление 2: передаем координаты правильно (point.coords)
-                    let placemark = new ymaps.Placemark(point.coords, {
+                    // Используем lat и lon напрямую из базы
+                    let placemark = new ymaps.Placemark([point.lat, point.lon], {
                         balloonContentHeader: `<strong>${point.name}</strong>`,
                         balloonContentBody: `
                             <div style="margin-bottom: 12px; font-size: 14px;">${point.address}</div>
@@ -76,21 +77,20 @@
 
         window.updateStatus = async function(id, status) {
             try {
-                // Исправление 3: подгоняем ключи JSON под то, что ждет бэкенд на Python (point_id, new_status, init_data)
                 let response = await fetch(`${API_URL}/update_status`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         point_id: parseInt(id), 
                         new_status: status,
-                        init_data: tg.initData || "" // Без этого сервер отклонит запрос, посчитав его хакерским
+                        init_data: tg.initData || "" 
                     })
                 });
                 
                 if (response.ok) {
                     tg.showAlert(`✅ Статус сохранен: ${status}`);
                 } else {
-                    tg.showAlert("Ошибка при сохранении. Возможно, нет прав.");
+                    tg.showAlert("Ошибка при сохранении. Проверь логи бэкенда.");
                 }
             } catch (e) {
                 tg.showAlert("Ошибка связи с сервером");
