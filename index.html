@@ -20,8 +20,8 @@
         let tg = window.Telegram.WebApp;
         tg.expand(); 
         
-        // Прямая ссылка на твой защищенный боевой сервер
         const API_URL = "https://crm-map-manager.duckdns.org/api";
+        const placemarksMap = new Map(); // Храним ссылки на метки по ID для быстрого обновления цвета
 
         ymaps.ready(init);
 
@@ -46,22 +46,23 @@
             }
 
             try {
-                // Забираем точки с нового эндпоинта
                 let response = await fetch(`${API_URL}/get_points`);
                 let pointsData = await response.json();
 
                 let geoObjects = [];
                 pointsData.forEach(point => {
-                    // Используем lat и lon напрямую из нового бэкенда
+                    let pointId = point.id || point.point_id;
                     let placemark = new ymaps.Placemark([point.lat, point.lon], {
                         balloonContentHeader: `<strong>${point.name}</strong>`,
                         balloonContentBody: `
                             <div style="margin-bottom: 12px; font-size: 14px;">${point.address}</div>
-                            <button class="status-btn btn-work" onclick="updateStatus('${point.id}', 'Работают')">🟢 Работают</button>
-                            <button class="status-btn btn-think" onclick="updateStatus('${point.id}', 'Думают')">🟡 Думают</button>
-                            <button class="status-btn btn-close" onclick="updateStatus('${point.id}', 'Закрыты')">🔴 Закрыты</button>
+                            <button class="status-btn btn-work" onclick="updateStatus('${pointId}', 'Работают')">🟢 Работают</button>
+                            <button class="status-btn btn-think" onclick="updateStatus('${pointId}', 'Думают')">🟡 Думают</button>
+                            <button class="status-btn btn-close" onclick="updateStatus('${pointId}', 'Закрыты')">🔴 Закрыты</button>
                         `
                     }, { preset: getPresetByStatus(point.status) });
+
+                    placemarksMap.set(String(pointId), placemark);
                     geoObjects.push(placemark);
                 });
                 clusterer.add(geoObjects);
@@ -72,20 +73,34 @@
             }
         }
 
-        window.updateStatus = async function(id, status) {
+        window.updateStatus = async function(rawId, status) {
             try {
-                // Отправляем изменения на сервер
+                let pointId = String(rawId);
                 let response = await fetch(`${API_URL}/update_status`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    // Дублируем ключи, чтобы попасть в Pydantic схему, какая бы она у тебя там ни была
-                    body: JSON.stringify({ id: id, status: status, point_id: String(id), new_status: status })
+                    body: JSON.stringify({ 
+                        id: pointId, 
+                        status: status
+                    })
                 });
                 
                 if (response.ok) {
-                    tg.showAlert(`✅ Статус "${status}" успешно сохранен! Закрой и открой балун метки.`);
+                    // Меняем цвет иконки на лету
+                    let pm = placemarksMap.get(pointId);
+                    if (pm) {
+                        pm.options.set('preset', 
+                            status === 'Работают' ? 'islands#greenIcon' :
+                            status === 'Думают' ? 'islands#yellowIcon' :
+                            status === 'Закрыты' ? 'islands#redIcon' : 'islands#blueIcon'
+                        );
+                        pm.balloon.close();
+                    }
+                    tg.showAlert(`✅ Статус "${status}" сохранен!`);
                 } else {
-                    tg.showAlert("Ошибка при сохранении на сервере.");
+                    let errText = await response.text();
+                    console.error("Server error:", errText);
+                    tg.showAlert(`Ошибка ${response.status}: ${errText.substring(0, 100)}`);
                 }
             } catch (e) {
                 tg.showAlert("Ошибка связи с сервером.");
