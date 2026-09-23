@@ -47,11 +47,15 @@
             try {
                 let response = await fetch(`${API_URL}/get_points`);
                 if (!response.ok) throw new Error("Network response error");
-                let pointsData = await response.json();
+                
+                // Исправление 1: правильно достаем массив точек из JSON
+                let data = await response.json();
+                let pointsData = data.points; 
 
                 let geoObjects = [];
                 pointsData.forEach(point => {
-                    let placemark = new ymaps.Placemark([point.lat, point.lon], {
+                    // Исправление 2: передаем координаты правильно (point.coords)
+                    let placemark = new ymaps.Placemark(point.coords, {
                         balloonContentHeader: `<strong>${point.name}</strong>`,
                         balloonContentBody: `
                             <div style="margin-bottom: 12px; font-size: 14px;">${point.address}</div>
@@ -72,16 +76,21 @@
 
         window.updateStatus = async function(id, status) {
             try {
+                // Исправление 3: подгоняем ключи JSON под то, что ждет бэкенд на Python (point_id, new_status, init_data)
                 let response = await fetch(`${API_URL}/update_status`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: id, status: status })
+                    body: JSON.stringify({ 
+                        point_id: parseInt(id), 
+                        new_status: status,
+                        init_data: tg.initData || "" // Без этого сервер отклонит запрос, посчитав его хакерским
+                    })
                 });
                 
                 if (response.ok) {
                     tg.showAlert(`✅ Статус сохранен: ${status}`);
                 } else {
-                    tg.showAlert("Ошибка при сохранении");
+                    tg.showAlert("Ошибка при сохранении. Возможно, нет прав.");
                 }
             } catch (e) {
                 tg.showAlert("Ошибка связи с сервером");
